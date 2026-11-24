@@ -10,11 +10,13 @@ import {
   ScrollView,
   ActivityIndicator,
   Dimensions,
+  Alert,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Icon } from '../components/Icon';
 import { colors, radius, spacing } from '../constants/theme';
+import { supabase } from '../lib/supabase';
 
 const { width } = Dimensions.get('window');
 
@@ -30,12 +32,27 @@ export default function LoginScreen({ onLogin }: Props) {
   const [loading, setLoading] = useState(false);
   const [showSignup, setShowSignup] = useState(false);
 
-  const handleLogin = () => {
+  const handleLogin = async () => {
+    if (!email || !password) {
+      Alert.alert('Atenção', 'Preencha e-mail e senha.');
+      return;
+    }
+
     setLoading(true);
-    setTimeout(() => {
-      setLoading(false);
-      onLogin();
-    }, 800);
+
+    const { error } = await supabase.auth.signInWithPassword({
+      email: email.trim().toLowerCase(),
+      password,
+    });
+
+    setLoading(false);
+
+    if (error) {
+      Alert.alert('Erro ao entrar', error.message);
+      return;
+    }
+
+    onLogin();
   };
 
   return (
@@ -97,6 +114,7 @@ export default function LoginScreen({ onLogin }: Props) {
                       placeholderTextColor={colors.soft}
                       keyboardType="email-address"
                       autoCapitalize="none"
+                      autoCorrect={false}
                       value={email}
                       onChangeText={setEmail}
                     />
@@ -173,14 +191,81 @@ export default function LoginScreen({ onLogin }: Props) {
         </KeyboardAvoidingView>
       </SafeAreaView>
 
-      {showSignup && <SignupSheet onClose={() => setShowSignup(false)} />}
+      {showSignup && (
+        <SignupSheet
+          onClose={() => setShowSignup(false)}
+          onSuccess={() => {
+            setShowSignup(false);
+            onLogin();
+          }}
+        />
+      )}
     </View>
   );
 }
 
 // ===== Sheet de Cadastro =====
-function SignupSheet({ onClose }: { onClose: () => void }) {
-  const [sent, setSent] = useState(false);
+function SignupSheet({
+  onClose,
+  onSuccess,
+}: {
+  onClose: () => void;
+  onSuccess: () => void;
+}) {
+  const [fullName, setFullName] = useState('');
+  const [email, setEmail] = useState('');
+  const [course, setCourse] = useState('');
+  const [institution, setInstitution] = useState('');
+  const [password, setPassword] = useState('');
+  const [loading, setLoading] = useState(false);
+
+  const handleSignup = async () => {
+    if (!fullName || !email || !password) {
+      Alert.alert('Atenção', 'Preencha nome, e-mail e senha.');
+      return;
+    }
+
+    if (password.length < 6) {
+      Alert.alert('Atenção', 'A senha precisa ter pelo menos 6 caracteres.');
+      return;
+    }
+
+    setLoading(true);
+
+    const { data, error } = await supabase.auth.signUp({
+      email: email.trim().toLowerCase(),
+      password,
+      options: {
+        data: {
+          full_name: fullName.trim(),
+          course: course.trim(),
+          institution: institution.trim(),
+        },
+      },
+    });
+
+    if (error) {
+      setLoading(false);
+      Alert.alert('Erro no cadastro', error.message);
+      return;
+    }
+
+    // Atualiza o perfil com curso e instituição
+    if (data.user) {
+      await supabase
+        .from('profiles')
+        .update({
+          course: course.trim() || null,
+          institution: institution.trim() || null,
+        })
+        .eq('id', data.user.id);
+    }
+
+    setLoading(false);
+    Alert.alert('Sucesso', 'Conta criada com sucesso!', [
+      { text: 'OK', onPress: onSuccess },
+    ]);
+  };
 
   return (
     <View style={styles.sheetOverlay}>
@@ -198,17 +283,78 @@ function SignupSheet({ onClose }: { onClose: () => void }) {
         </View>
 
         <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 40 }}>
-          <Field label="Nome completo" placeholder="Como você quer ser chamado?" />
-          <Field label="E-mail institucional" placeholder="nome@universidade.edu.br" keyboardType="email-address" />
-          <View style={styles.twoFields}>
-            <View style={{ flex: 1 }}>
-              <Field label="Curso" placeholder="Ex.: ADS" />
-            </View>
-            <View style={{ flex: 1 }}>
-              <Field label="Instituição" placeholder="Ex.: IFSP" />
+          <View style={styles.field}>
+            <Text style={styles.label}>Nome completo</Text>
+            <View style={styles.inputWrapper}>
+              <TextInput
+                style={[styles.input, { paddingLeft: 14 }]}
+                placeholder="Como você quer ser chamado?"
+                placeholderTextColor={colors.soft}
+                value={fullName}
+                onChangeText={setFullName}
+              />
             </View>
           </View>
-          <Field label="Senha" placeholder="Mínimo de 8 caracteres" secureTextEntry />
+
+          <View style={styles.field}>
+            <Text style={styles.label}>E-mail institucional</Text>
+            <View style={styles.inputWrapper}>
+              <TextInput
+                style={[styles.input, { paddingLeft: 14 }]}
+                placeholder="nome@universidade.edu.br"
+                placeholderTextColor={colors.soft}
+                keyboardType="email-address"
+                autoCapitalize="none"
+                value={email}
+                onChangeText={setEmail}
+              />
+            </View>
+          </View>
+
+          <View style={styles.twoFields}>
+            <View style={{ flex: 1 }}>
+              <View style={styles.field}>
+                <Text style={styles.label}>Curso</Text>
+                <View style={styles.inputWrapper}>
+                  <TextInput
+                    style={[styles.input, { paddingLeft: 14 }]}
+                    placeholder="Ex.: ADS"
+                    placeholderTextColor={colors.soft}
+                    value={course}
+                    onChangeText={setCourse}
+                  />
+                </View>
+              </View>
+            </View>
+            <View style={{ flex: 1 }}>
+              <View style={styles.field}>
+                <Text style={styles.label}>Instituição</Text>
+                <View style={styles.inputWrapper}>
+                  <TextInput
+                    style={[styles.input, { paddingLeft: 14 }]}
+                    placeholder="Ex.: IFSP"
+                    placeholderTextColor={colors.soft}
+                    value={institution}
+                    onChangeText={setInstitution}
+                  />
+                </View>
+              </View>
+            </View>
+          </View>
+
+          <View style={styles.field}>
+            <Text style={styles.label}>Senha</Text>
+            <View style={styles.inputWrapper}>
+              <TextInput
+                style={[styles.input, { paddingLeft: 14 }]}
+                placeholder="Mínimo de 6 caracteres"
+                placeholderTextColor={colors.soft}
+                secureTextEntry
+                value={password}
+                onChangeText={setPassword}
+              />
+            </View>
+          </View>
 
           <View style={styles.privacy}>
             <Icon name="shield" size={14} color={colors.forest700} />
@@ -218,48 +364,18 @@ function SignupSheet({ onClose }: { onClose: () => void }) {
           </View>
 
           <TouchableOpacity
-            style={styles.primaryButton}
-            onPress={() => setSent(true)}
+            style={[styles.primaryButton, loading && { opacity: 0.7 }]}
+            onPress={handleSignup}
+            disabled={loading}
             activeOpacity={0.85}
           >
-            {sent ? (
-              <>
-                <Icon name="check" size={18} color={colors.white} />
-                <Text style={styles.primaryButtonText}> Conta criada!</Text>
-              </>
+            {loading ? (
+              <ActivityIndicator color={colors.white} />
             ) : (
               <Text style={styles.primaryButtonText}>Continuar cadastro</Text>
             )}
           </TouchableOpacity>
         </ScrollView>
-      </View>
-    </View>
-  );
-}
-
-function Field({
-  label,
-  placeholder,
-  secureTextEntry,
-  keyboardType = 'default',
-}: {
-  label: string;
-  placeholder: string;
-  secureTextEntry?: boolean;
-  keyboardType?: any;
-}) {
-  return (
-    <View style={styles.field}>
-      <Text style={styles.label}>{label}</Text>
-      <View style={styles.inputWrapper}>
-        <TextInput
-          style={[styles.input, { paddingLeft: 14 }]}
-          placeholder={placeholder}
-          placeholderTextColor={colors.soft}
-          secureTextEntry={secureTextEntry}
-          keyboardType={keyboardType}
-          autoCapitalize="none"
-        />
       </View>
     </View>
   );
